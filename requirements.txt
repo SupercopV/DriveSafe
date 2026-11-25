@@ -1,5 +1,9 @@
-Flask
-opencv-python-headless
+Flask>=3.0.0
+opencv-python-headless==4.11.0.86
+opencv-contrib-python==4.11.0.86
 mediapipe==0.10.21
-numpy
-gunicorn
+numpy>=1.26.0,<2
+requests>=2.31.0
+gunicorn>=21.0.0
+twilio>=9.0.0
+python-dotenv>=1.0.0
