@@ -19,3 +19,15 @@ services:
         sync: false
       - key: TWILIO_PHONE_NUMBER
         sync: false
+      - key: EYE_CLOSED_THRESHOLD
+        value: "0.22"
+      - key: EYE_OPEN_THRESHOLD
+        value: "0.26"
+      - key: EYE_CLOSED_CONFIRM_FRAMES
+        value: "2"
+      - key: BLINK_MIN_DURATION
+        value: "0.08"
+      - key: BLINK_MAX_DURATION
+        value: "0.80"
+      - key: DROWSINESS_TIME
+        value: "2.0"

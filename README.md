@@ -7,7 +7,7 @@ A modern, real-time driver fatigue monitoring system utilizing OpenCV and MediaP
 ## Key Features
 
 - **Live Vision Stream & Eye Aspect Ratio (EAR)**: Real-time tracking of facial landmarks using MediaPipe Face Mesh at low latency.
-- **Eye Blink & Fatigue Analytics**: Automated classification of natural eye blinks (40ms - 2.0s) vs. dangerous prolonged eye closures (&ge; 2.0s).
+- **Eye Blink & Fatigue Analytics**: Hysteresis-based EAR detection counts confirmed blinks and alerts on prolonged eye closure.
 - **Dual Audio Alarm System**: In-browser Web Audio API square-wave buzzer + Web Speech API voice alarm ("Are you sleeping? Please stay alert!").
 - **Twilio Mobile SMS Dispatch**: Asynchronous daemon queue sending SMS alerts directly to the driver's or supervisor's phone upon confirmed fatigue events.
 - **SMS Rate Limiting & Cooldown**: Enforces a 60-second cooldown period between SMS notifications to prevent spamming while eyes remain closed.
@@ -52,6 +52,19 @@ TWILIO_AUTH_TOKEN=your_32_character_auth_token
 TWILIO_PHONE_NUMBER=+15551234567
 ```
 The SID and Auth Token must be real credentials from your Twilio Console; sample values are rejected. The sender must be an SMS-capable Twilio number in E.164 format. The app does not simulate SMS: if configuration is missing or malformed, the dashboard displays the specific setup error and no SMS is reported as sent.
+
+### Optional eye-detection tuning
+Detection defaults are listed in `.env.example` and can be overridden in local `.env` or Render environment settings:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `EYE_CLOSED_THRESHOLD` | `0.22` | Both eye EAR values must fall below this to begin closure |
+| `EYE_OPEN_THRESHOLD` | `0.26` | Average EAR must reach this to confirm reopening |
+| `EYE_CLOSED_CONFIRM_FRAMES` | `2` | Consecutive closed frames required to reject one-frame noise |
+| `BLINK_MIN_DURATION` / `BLINK_MAX_DURATION` | `0.08` / `0.80` | Accepted blink duration range, in seconds |
+| `DROWSINESS_TIME` | `2.0` | Continuous confirmed closure duration before alert |
+
+The open threshold must be higher than the closed threshold. The dashboard displays both eye EAR values, eye state, blink count, and closure duration while monitoring.
 
 ### 6. Run the Flask Application
 ```powershell

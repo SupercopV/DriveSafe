@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioException, TwilioRestException
 from twilio.http.http_client import TwilioHttpClient
+from eye_detection import EyeClosureTracker, eye_aspect_ratio
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
@@ -39,9 +40,11 @@ monitoring = False
 blink_count = 0
 drowsiness_count = 0
 last_ear = None
-closed_since = None
+last_left_ear = None
+last_right_ear = None
+last_eye_state = "UNKNOWN"
+last_closed_duration = 0.0
 current_status = "Monitoring stopped"
-eyes_were_closed = False
 face_lock = Lock()
 sms_lock = Lock()
 sms_queue = Queue()
@@ -66,8 +69,46 @@ face_mesh = mp.solutions.face_mesh.FaceMesh(
 
 LEFT_EYE = [362, 385, 387, 263, 373, 380]
 RIGHT_EYE = [33, 160, 158, 133, 153, 144]
-EYE_THRESHOLD = 0.25
-DROWSINESS_TIME = 2.0
+
+
+def read_float_setting(name, default):
+    try:
+        value = float(os.environ.get(name, default))
+    except ValueError as error:
+        raise RuntimeError(f"{name} must be a number.") from error
+    if not math.isfinite(value):
+        raise RuntimeError(f"{name} must be a finite number.")
+    return value
+
+
+def read_int_setting(name, default):
+    try:
+        value = int(os.environ.get(name, default))
+    except ValueError as error:
+        raise RuntimeError(f"{name} must be an integer.") from error
+    return value
+
+
+EYE_CLOSED_THRESHOLD = read_float_setting("EYE_CLOSED_THRESHOLD", "0.22")
+EYE_OPEN_THRESHOLD = read_float_setting("EYE_OPEN_THRESHOLD", "0.26")
+DROWSINESS_TIME = read_float_setting("DROWSINESS_TIME", "2.0")
+BLINK_MIN_DURATION = read_float_setting("BLINK_MIN_DURATION", "0.08")
+BLINK_MAX_DURATION = read_float_setting("BLINK_MAX_DURATION", "0.80")
+EYE_CLOSED_CONFIRM_FRAMES = read_int_setting("EYE_CLOSED_CONFIRM_FRAMES", "2")
+if not 0 < EYE_CLOSED_THRESHOLD < EYE_OPEN_THRESHOLD < 1:
+    raise RuntimeError("Eye thresholds must satisfy 0 < closed threshold < open threshold < 1.")
+if not 0 < BLINK_MIN_DURATION <= BLINK_MAX_DURATION < DROWSINESS_TIME:
+    raise RuntimeError("Blink durations must be positive, ordered, and below DROWSINESS_TIME.")
+if DROWSINESS_TIME <= 0 or EYE_CLOSED_CONFIRM_FRAMES < 1:
+    raise RuntimeError("DROWSINESS_TIME and EYE_CLOSED_CONFIRM_FRAMES must be positive.")
+eye_tracker = EyeClosureTracker(
+    close_threshold=EYE_CLOSED_THRESHOLD,
+    open_threshold=EYE_OPEN_THRESHOLD,
+    drowsiness_seconds=DROWSINESS_TIME,
+    blink_min_seconds=BLINK_MIN_DURATION,
+    blink_max_seconds=BLINK_MAX_DURATION,
+    confirmation_frames=EYE_CLOSED_CONFIRM_FRAMES,
+)
 
 
 @contextmanager
@@ -261,18 +302,8 @@ def login_required(view):
     return wrapped
 
 
-def distance(p1, p2):
-    return math.dist(p1, p2)
-
-
 def eye_ratio(points, indexes):
-    p = [points[i] for i in indexes]
-    vertical1 = distance(p[1], p[5])
-    vertical2 = distance(p[2], p[4])
-    horizontal = distance(p[0], p[3])
-    if horizontal == 0:
-        return 0
-    return (vertical1 + vertical2) / (2 * horizontal)
+    return eye_aspect_ratio(points, indexes)
 
 
 def get_driver_state(detection_text):
@@ -280,13 +311,39 @@ def get_driver_state(detection_text):
         return "STOPPED"
     if detection_text == "DROWSINESS ALERT!":
         return "DROWSY"
-    if detection_text == "Eyes Closed":
+    if detection_text in ("Eyes Closing", "Eyes Closed"):
         return "WARNING"
     if detection_text == "Face not detected":
         return "NO FACE"
     if detection_text == "Eyes Open":
         return "ALERT"
     return "UNKNOWN"
+
+
+def detection_telemetry():
+    return {
+        "eye_ratio": last_ear,
+        "left_eye_ratio": last_left_ear,
+        "right_eye_ratio": last_right_ear,
+        "eye_state": last_eye_state,
+        "closed_duration": last_closed_duration,
+        "ear_threshold": EYE_CLOSED_THRESHOLD,
+        "eye_closed_threshold": EYE_CLOSED_THRESHOLD,
+        "eye_open_threshold": EYE_OPEN_THRESHOLD,
+        "drowsiness_time": DROWSINESS_TIME,
+        "blink_min_duration": BLINK_MIN_DURATION,
+        "blink_max_duration": BLINK_MAX_DURATION,
+    }
+
+
+def reset_eye_telemetry():
+    global last_ear, last_left_ear, last_right_ear, last_eye_state, last_closed_duration
+    eye_tracker.reset()
+    last_ear = None
+    last_left_ear = None
+    last_right_ear = None
+    last_eye_state = "UNKNOWN"
+    last_closed_duration = 0.0
 
 
 @app.route("/")
@@ -442,12 +499,10 @@ def login():
 @app.route("/logout", methods=["POST"])
 @login_required
 def logout():
-    global monitoring, closed_since, current_status, eyes_were_closed, incident_active, last_ear
+    global monitoring, current_status, incident_active
     monitoring = False
-    closed_since = None
-    eyes_were_closed = False
     incident_active = False
-    last_ear = None
+    reset_eye_telemetry()
     current_status = "Monitoring stopped"
     session.clear()
     return redirect(url_for("login"))
@@ -456,13 +511,11 @@ def logout():
 @app.route("/start")
 @login_required
 def start():
-    global monitoring, blink_count, drowsiness_count, closed_since, current_status, eyes_were_closed, incident_active, last_ear
+    global monitoring, blink_count, drowsiness_count, current_status, incident_active
     blink_count = 0
     drowsiness_count = 0
-    closed_since = None
-    eyes_were_closed = False
     incident_active = False
-    last_ear = None
+    reset_eye_telemetry()
     current_status = "Face not detected"
     monitoring = True
     return jsonify({
@@ -470,31 +523,32 @@ def start():
         "monitoring": True,
         "blink_count": 0,
         "drowsiness_count": 0,
-        "driver_state": "NO FACE"
+        "driver_state": "NO FACE",
+        **detection_telemetry(),
     })
 
 
 @app.route("/stop")
 @login_required
 def stop():
-    global monitoring, closed_since, current_status, eyes_were_closed, incident_active, last_ear
+    global monitoring, current_status, incident_active
     monitoring = False
-    closed_since = None
-    eyes_were_closed = False
     incident_active = False
-    last_ear = None
+    reset_eye_telemetry()
     current_status = "Monitoring stopped"
     return jsonify({
         "status": "Monitoring stopped",
         "monitoring": False,
-        "driver_state": "STOPPED"
+        "driver_state": "STOPPED",
+        **detection_telemetry(),
     })
 
 
 @app.route("/process_frame", methods=["POST"])
 @login_required
 def process_frame():
-    global monitoring, blink_count, drowsiness_count, closed_since, current_status, eyes_were_closed, incident_active, last_ear
+    global monitoring, blink_count, drowsiness_count, current_status, incident_active
+    global last_ear, last_left_ear, last_right_ear, last_eye_state, last_closed_duration
     uid = session.get("user_id")
 
     if not monitoring:
@@ -504,7 +558,7 @@ def process_frame():
             "drowsiness_count": drowsiness_count,
             "detection_status": "Monitoring stopped",
             "driver_state": "STOPPED",
-            "eye_ratio": None
+            **detection_telemetry(),
         })
 
     file = request.files.get("frame")
@@ -531,10 +585,8 @@ def process_frame():
 
         if not results.multi_face_landmarks:
             current_status = "Face not detected"
-            closed_since = None
-            eyes_were_closed = False
             incident_active = False
-            last_ear = None
+            reset_eye_telemetry()
             with sms_lock:
                 sms_st = sms_status_by_user.get(uid, "SMS WAITING")
                 sms_ev = last_sms_event_by_user.get(uid)
@@ -544,8 +596,7 @@ def process_frame():
                 "drowsiness_count": drowsiness_count,
                 "detection_status": current_status,
                 "driver_state": "NO FACE",
-                "eye_ratio": None,
-                "ear_threshold": EYE_THRESHOLD,
+                **detection_telemetry(),
                 "sms_status": sms_st,
                 "sms_event": sms_ev
             })
@@ -557,31 +608,31 @@ def process_frame():
         right_ear = eye_ratio(points, RIGHT_EYE)
         average_ear = (left_ear + right_ear) / 2
         last_ear = round(average_ear, 3)
+        last_left_ear = round(left_ear, 3)
+        last_right_ear = round(right_ear, 3)
+        observation = eye_tracker.update(left_ear, right_ear, time.monotonic())
+        last_eye_state = observation.state
+        last_closed_duration = round(observation.closed_duration, 2)
 
-        if average_ear < EYE_THRESHOLD:
-            if not eyes_were_closed:
-                closed_since = time.time()
-                eyes_were_closed = True
-
-            if closed_since is not None:
-                closed_duration = time.time() - closed_since
-                if closed_duration >= DROWSINESS_TIME:
-                    current_status = "DROWSINESS ALERT!"
-                    if not incident_active:
-                        incident_active = True
-                        drowsiness_count += 1
-                        queue_alert_sms(uid)
-                else:
-                    current_status = "Eyes Closed"
-        else:
-            if eyes_were_closed and closed_since is not None:
-                closed_duration = time.time() - closed_since
-                if 0.04 <= closed_duration < DROWSINESS_TIME:
-                    blink_count += 1
-            closed_since = None
-            eyes_were_closed = False
+        if observation.state == "CLOSED":
+            if observation.drowsy:
+                current_status = "DROWSINESS ALERT!"
+                if not incident_active:
+                    incident_active = True
+                    drowsiness_count += 1
+                    queue_alert_sms(uid)
+            else:
+                current_status = "Eyes Closed"
+        elif observation.state == "CLOSING":
+            current_status = "Eyes Closing"
+        elif observation.state == "OPEN":
+            if observation.blink_detected:
+                blink_count += 1
             incident_active = False
             current_status = "Eyes Open"
+        else:
+            current_status = "Face not detected"
+            incident_active = False
 
         driver_state = get_driver_state(current_status)
 
@@ -596,8 +647,7 @@ def process_frame():
             "drowsiness_count": drowsiness_count,
             "detection_status": current_status,
             "driver_state": driver_state,
-            "eye_ratio": last_ear,
-            "ear_threshold": EYE_THRESHOLD,
+            **detection_telemetry(),
             "sms_status": sms_st,
             "sms_event": sms_ev
         })
@@ -623,8 +673,7 @@ def status():
         "drowsiness_count": drowsiness_count,
         "detection_status": current_status,
         "driver_state": get_driver_state(current_status),
-        "eye_ratio": last_ear,
-        "ear_threshold": EYE_THRESHOLD,
+        **detection_telemetry(),
         "sms_status": sms_st,
         "sms_event": sms_ev
     })

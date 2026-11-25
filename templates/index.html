@@ -1094,7 +1094,7 @@ footer {
             <span class="metric-sub-value">blinks</span>
         </div>
         <div class="metric-footer">
-            <span>Eye closure: 40ms - 2.0s</span>
+            <span id="blinkWindowText">Blink window: 0.08s - 0.80s</span>
             <span>Normal</span>
         </div>
     </div>
@@ -1110,7 +1110,7 @@ footer {
             <span class="metric-sub-value">events</span>
         </div>
         <div class="metric-footer">
-            <span>Threshold: &ge; 2.0s closed</span>
+            <span id="drowsyThresholdText">Alert after 2.0s closed</span>
             <span id="alertFlag">None</span>
         </div>
     </div>
@@ -1123,10 +1123,10 @@ footer {
         </div>
         <div class="metric-value-row">
             <span class="metric-main-value" id="earMetricValue">—</span>
-            <span class="metric-sub-value">/ 0.250</span>
+            <span class="metric-sub-value" id="earThresholdSub">/ 0.220</span>
         </div>
         <div class="metric-footer">
-            <span>Cutoff: 0.250</span>
+            <span>Close &lt; <strong id="eyeCloseThresholdLabel">0.220</strong> · Open ≥ <strong id="eyeOpenThresholdLabel">0.260</strong></span>
             <span id="earZone">Standby</span>
         </div>
     </div>
@@ -1199,6 +1199,7 @@ footer {
                         <div class="hud-top-row">
                             <span class="hud-tag"><span>REC</span> LIVE 640×480</span>
                             <span class="hud-tag" id="hudEarTag">EAR: —</span>
+                            <span class="hud-tag" id="hudEyeTag">EYES: —</span>
                         </div>
                         <div class="hud-center-reticle">
                             <div style="display:flex;justify-content:space-between">
@@ -1212,7 +1213,7 @@ footer {
                         </div>
                         <div class="hud-bottom-banner" id="drowsinessAlertBanner" role="status" aria-live="assertive">
                             <span style="font-size:12px;font-weight:600" id="hudMessage">Analyzing driver face...</span>
-                            <span class="hud-tag" id="hudFpsTag">FPS: ~4.0</span>
+                            <span class="hud-tag" id="hudFpsTag">MAX: 10 FPS</span>
                         </div>
                     </div>
                 </div>
@@ -1243,7 +1244,7 @@ footer {
                     <p>Real-time Eye Aspect Ratio waveform against safety thresholds</p>
                 </div>
                 <div class="panel-badge">
-                    <span>Threshold Line: <strong>0.250</strong></span>
+                    <span>Threshold Line: <strong id="gaugeThresholdLabel">0.220</strong></span>
                 </div>
             </div>
             <div class="telemetry-panel-body">
@@ -1253,7 +1254,7 @@ footer {
                     <span class="gauge-value" id="gaugeRatioText">EAR: 0.000</span>
                 </div>
                 <div class="ear-meter-bar-container">
-                    <div class="ear-threshold-marker" title="Safety Threshold (0.250)"></div>
+                    <div class="ear-threshold-marker" id="earThresholdMarker" title="Closed-eye threshold"></div>
                     <div class="ear-meter-fill" id="earMeterFill"></div>
                 </div>
 
@@ -1261,7 +1262,7 @@ footer {
                 <div class="chart-wrapper">
                     <div class="chart-title-row">
                         <span>LIVE EAR WAVEFORM (LAST 45 FRAMES)</span>
-                        <span style="color:var(--red-drowsy)">— — THRESHOLD 0.250</span>
+                        <span style="color:var(--red-drowsy)">— — THRESHOLD <span id="chartThresholdLabel">0.220</span></span>
                     </div>
                     <canvas id="earCanvas" width="800" height="90"></canvas>
                 </div>
@@ -1405,7 +1406,10 @@ let mediaStream = null;
 // Telemetry History for Waveform Chart
 const EAR_HISTORY_LENGTH = 45;
 const earHistory = new Array(EAR_HISTORY_LENGTH).fill(0.32);
-const EAR_THRESHOLD = 0.250;
+const FRAME_CAPTURE_INTERVAL_MS = 100;
+let EAR_THRESHOLD = 0.220;
+let EYE_OPEN_THRESHOLD = 0.260;
+let DROWSINESS_TIME = 2.0;
 
 // Elements
 const camera = document.getElementById("camera");
@@ -1449,7 +1453,7 @@ function drawEarChart(currentEar) {
         return h - (clamped / 0.45) * (h - 14) - 7;
     }
 
-    // Draw Threshold Dashed Line (0.25)
+    // Draw configured threshold line
     const thresholdY = toY(EAR_THRESHOLD);
     earCtx.strokeStyle = "rgba(244, 63, 94, 0.8)";
     earCtx.setLineDash([6, 4]);
@@ -1487,7 +1491,8 @@ function drawEarChart(currentEar) {
         if (i === 0) earCtx.moveTo(x, y);
         else earCtx.lineTo(x, y);
     }
-    earCtx.strokeStyle = currentEar < EAR_THRESHOLD ? "#f43f5e" : "#00f0ff";
+    const belowThreshold = currentEar !== null && currentEar !== undefined && currentEar < EAR_THRESHOLD;
+    earCtx.strokeStyle = belowThreshold ? "#f43f5e" : "#00f0ff";
     earCtx.lineWidth = 2.5;
     earCtx.stroke();
 
@@ -1496,7 +1501,7 @@ function drawEarChart(currentEar) {
     const lastY = toY(earHistory[earHistory.length - 1]);
     earCtx.beginPath();
     earCtx.arc(lastX - 2, lastY, 4, 0, Math.PI * 2);
-    earCtx.fillStyle = currentEar < EAR_THRESHOLD ? "#f43f5e" : "#00f0ff";
+    earCtx.fillStyle = belowThreshold ? "#f43f5e" : "#00f0ff";
     earCtx.fill();
 }
 drawEarChart(0.32);
@@ -1719,6 +1724,8 @@ async function startMonitoring() {
         // Start backend session
         const res = await fetch("/start");
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Could not start the detection service.");
+        updateDetectionSettings(data);
 
         monitoring = true;
         monitoringStartedAt = Date.now();
@@ -1736,7 +1743,8 @@ async function startMonitoring() {
         durationInterval = setInterval(updateDuration, 1000);
 
         if (captureInterval) clearInterval(captureInterval);
-        captureInterval = setInterval(captureAndSendFrame, 250);
+        captureAndSendFrame();
+        captureInterval = setInterval(captureAndSendFrame, FRAME_CAPTURE_INTERVAL_MS);
 
         if (statusInterval) clearInterval(statusInterval);
         statusInterval = setInterval(pollServerStatus, 1500);
@@ -1745,6 +1753,14 @@ async function startMonitoring() {
         console.error("Camera start failed:", err);
         monitoring = false;
         cameraActive = false;
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(track => track.stop());
+            mediaStream = null;
+        }
+        camera.srcObject = null;
+        camera.style.display = "none";
+        cameraPlaceholder.style.display = "flex";
+        hudOverlay.style.display = "none";
         startButton.disabled = false;
         stopButton.disabled = true;
         document.getElementById("systemStateText").textContent = "Camera Error";
@@ -1843,13 +1859,21 @@ async function captureAndSendFrame() {
             body: formData
         });
 
-        if (!response.ok) throw new Error("Frame upload failed with status " + response.status);
-
-        const data = await response.json();
+        const responseText = await response.text();
+        let data;
+        try {
+            data = responseText ? JSON.parse(responseText) : {};
+        } catch {
+            throw new Error(`Detection service returned an invalid response (${response.status}).`);
+        }
+        if (!response.ok) {
+            throw new Error(data.error || `Frame processing failed (${response.status}).`);
+        }
         handleDetectionResult(data);
 
     } catch (err) {
         console.error("Frame processing error:", err);
+        showDetectionError(err.message || "Could not process the camera frame.");
     } finally {
         processingFrame = false;
     }
@@ -1858,6 +1882,7 @@ async function captureAndSendFrame() {
 // Telemetry & UI Dispatcher
 let lastSmsTimestamp = "";
 function handleDetectionResult(data) {
+    updateDetectionSettings(data);
     if (data.blink_count !== undefined) {
         document.getElementById("blinkCount").textContent = data.blink_count;
     }
@@ -1866,7 +1891,8 @@ function handleDetectionResult(data) {
     }
 
     const ear = data.eye_ratio;
-    updateEarVisuals(ear);
+    updateDetectionDebug(data);
+    updateEarVisuals(ear, data.left_eye_ratio, data.right_eye_ratio);
     updateDriverStateUI(data.driver_state, ear, data.detection_status);
 
     // Update SMS event if newly dispatched
@@ -1887,10 +1913,62 @@ function handleDetectionResult(data) {
     }
 }
 
-function updateEarVisuals(ear) {
+function updateDetectionSettings(data) {
+    if (Number.isFinite(data.eye_closed_threshold)) EAR_THRESHOLD = data.eye_closed_threshold;
+    if (Number.isFinite(data.eye_open_threshold)) EYE_OPEN_THRESHOLD = data.eye_open_threshold;
+    if (Number.isFinite(data.drowsiness_time)) DROWSINESS_TIME = data.drowsiness_time;
+
+    document.getElementById("earThresholdSub").textContent = `/ ${EAR_THRESHOLD.toFixed(3)}`;
+    document.getElementById("eyeCloseThresholdLabel").textContent = EAR_THRESHOLD.toFixed(3);
+    document.getElementById("eyeOpenThresholdLabel").textContent = EYE_OPEN_THRESHOLD.toFixed(3);
+    document.getElementById("gaugeThresholdLabel").textContent = EAR_THRESHOLD.toFixed(3);
+    document.getElementById("chartThresholdLabel").textContent = EAR_THRESHOLD.toFixed(3);
+    const thresholdMarker = document.getElementById("earThresholdMarker");
+    thresholdMarker.style.left = `${Math.min(100, (EAR_THRESHOLD / 0.40) * 100)}%`;
+    thresholdMarker.title = `Closed-eye threshold (${EAR_THRESHOLD.toFixed(3)})`;
+    document.getElementById("drowsyThresholdText").textContent =
+        `Alert after ${DROWSINESS_TIME.toFixed(1)}s closed`;
+    if (Number.isFinite(data.blink_min_duration) && Number.isFinite(data.blink_max_duration)) {
+        document.getElementById("blinkWindowText").textContent =
+            `Blink window: ${data.blink_min_duration.toFixed(2)}s - ${data.blink_max_duration.toFixed(2)}s`;
+    }
+}
+
+function updateDetectionDebug(data) {
+    const state = data.eye_state || "UNKNOWN";
+    const duration = Number.isFinite(data.closed_duration) ? data.closed_duration : 0;
+    const eyesTag = document.getElementById("hudEyeTag");
+    eyesTag.textContent = state === "CLOSED" || state === "CLOSING"
+        ? `EYES: ${state} ${duration.toFixed(2)}s`
+        : `EYES: ${state}`;
+
+    const alertFlag = document.getElementById("alertFlag");
+    if (data.driver_state === "DROWSY") {
+        alertFlag.textContent = `ALERT ${duration.toFixed(2)}s`;
+    } else if (state === "CLOSED" || state === "CLOSING") {
+        alertFlag.textContent = `${state} ${duration.toFixed(2)}s`;
+    } else if (state === "OPEN") {
+        alertFlag.textContent = "Eyes open";
+    } else {
+        alertFlag.textContent = "No face";
+    }
+}
+
+function showDetectionError(message) {
+    const safeMessage = String(message || "Detection request failed.");
+    document.getElementById("faceDetectStatus").textContent = "Detection error";
+    document.getElementById("faceDetectStatus").style.color = "var(--red-drowsy)";
+    document.getElementById("hudMessage").textContent = `Detection error: ${safeMessage}`;
+    document.getElementById("alertFlag").textContent = "API ERROR";
+}
+
+function updateEarVisuals(ear, leftEar, rightEar) {
     const valText = (ear !== null && ear !== undefined) ? ear.toFixed(3) : "—";
     document.getElementById("earMetricValue").textContent = valText;
-    document.getElementById("hudEarTag").textContent = `EAR: ${valText}`;
+    document.getElementById("hudEarTag").textContent =
+        leftEar !== null && leftEar !== undefined && rightEar !== null && rightEar !== undefined
+            ? `EAR L:${leftEar.toFixed(3)} R:${rightEar.toFixed(3)}`
+            : `EAR: ${valText}`;
     document.getElementById("gaugeRatioText").textContent = `EAR: ${valText}`;
 
     const fill = document.getElementById("earMeterFill");
