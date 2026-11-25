@@ -80,13 +80,13 @@ py app.py
 
 ## Deploy on Render
 
-The repository includes a Render Blueprint, a Gunicorn `Procfile`, and a Python 3.11 runtime selection. The Blueprint uses one Render web service and a 1 GB persistent disk for `drivesafe.db`. The 1 CPU / 2 GB service plan and persistent disk are paid Render resources. Review Render's current pricing before applying the Blueprint. Render's free service does not provide a persistent disk, so accounts and saved SMS settings could be lost when the service restarts.
+The repository includes a Render Blueprint, a Gunicorn `Procfile`, and a Python 3.11 runtime selection. The Blueprint is set to Render's free web-service plan and stores SQLite at `/tmp/drivesafe.db`. This is a best-effort public demo: the database is ephemeral, so accounts and saved SMS settings can be lost when the service restarts or redeploys. The free instance has limited memory, and MediaPipe may exceed it. Do not use this configuration for important accounts or data. Persistent storage requires a paid Render service and disk.
 
 ### English: deployment steps
 
 1. Push the project to your GitHub repository. Do not add `.env` or `drivesafe.db`; `.env` is ignored, and the database file is kept out of version control. Check the GitHub repository and its history if the database was pushed in an earlier commit.
 2. Sign in at [Render](https://dashboard.render.com), choose **New → Blueprint**, connect your GitHub account, and select this repository and branch. Render reads `render.yaml` from the repository root.
-3. Review the Blueprint and its paid service/disk resources, then apply it. The service builds with `pip install -r requirements.txt` and starts with Gunicorn.
+3. Review the Blueprint, confirm it shows the free plan and no disk, then apply it. The service builds with `pip install -r requirements.txt` and starts with Gunicorn. If Render asks for a payment method or card authorization, stop; do not enter card details.
 4. In the service's **Environment** settings, add the Twilio values:
    - `TWILIO_ACCOUNT_SID` — your Twilio Account SID
    - `TWILIO_AUTH_TOKEN` — your Twilio Auth Token
@@ -102,7 +102,7 @@ The repository includes a Render Blueprint, a Gunicorn `Procfile`, and a Python 
 
 1. ప్రాజెక్ట్‌ను GitHub repository కి push చేయండి. `.env` లేదా `drivesafe.db` ఫైల్‌ను push చేయవద్దు. `.env` ignore అవుతుంది; database ఫైల్ కూడా version control లో ఉండకూడదు. Database గతంలో push చేసి ఉంటే, GitHub repository history ని కూడా పరిశీలించండి.
 2. [Render](https://dashboard.render.com) లో sign in చేసి **New → Blueprint** ఎంచుకోండి. GitHub connect చేసి, ఈ repository మరియు branch ఎంచుకోండి. Render, root లోని `render.yaml` ఫైల్‌ను చదువుతుంది.
-3. Blueprint లోని paid service మరియు disk వివరాలను పరిశీలించి, అంగీకరించిన తర్వాత apply చేయండి. Build కోసం `pip install -r requirements.txt`, server కోసం Gunicorn వాడబడతాయి.
+3. Blueprint లో free plan మరియు disk లేదని పరిశీలించి, ఆ తర్వాత apply చేయండి. Build కోసం `pip install -r requirements.txt`, server కోసం Gunicorn వాడబడతాయి. Render payment method లేదా card authorization అడిగితే ఆపండి; card వివరాలు నమోదు చేయవద్దు.
 4. Service లోని **Environment** settings లో ఈ Twilio విలువలను మీరే జోడించండి:
    - `TWILIO_ACCOUNT_SID` — Twilio Account SID
    - `TWILIO_AUTH_TOKEN` — Twilio Auth Token
@@ -118,6 +118,6 @@ The repository includes a Render Blueprint, a Gunicorn `Procfile`, and a Python 
 
 - The browser captures webcam frames and sends them to Flask for MediaPipe/OpenCV processing. Render does not need a server-attached webcam. The dashboard, blink/EAR detection, timer, alert history, red drowsiness banner, voice alarm, and SMS controls remain in the existing application.
 - Python 3.11 is selected for MediaPipe wheel compatibility. MediaPipe, OpenCV, and NumPy versions are constrained to a compatible set, and the app uses image-processing APIs without requiring a desktop display. Dependency resolution succeeds locally; a successful Render build and live deployment still need to be confirmed in your Render dashboard.
-- SQLite stores user accounts, password hashes, and SMS settings. Render's filesystem is temporary unless a persistent disk is attached; the Blueprint mounts one at `/var/data`. Keep this disk attached, and do not scale this single-instance SQLite service horizontally.
+- SQLite stores user accounts, password hashes, and SMS settings. This free Blueprint stores its database at `/tmp/drivesafe.db` without a persistent disk, so those records can disappear after restarts or redeploys. Free services can also sleep after inactivity. MediaPipe/OpenCV may exceed the free instance's 512 MB memory; a successful Render build and health check are not guaranteed.
 - Monitoring counters, alert history, and the SMS queue are currently in process memory; they reset when the service restarts. The app uses one Gunicorn worker to keep its existing shared detection state consistent.
 - If camera access fails, confirm that you opened the `https://` URL, allowed camera permissions, and are using a browser with webcam support. If SMS fails, check the service logs and Twilio settings in Render; never paste credentials into logs or GitHub.

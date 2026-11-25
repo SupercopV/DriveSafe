@@ -2,17 +2,13 @@ services:
   - type: web
     name: drivesafe
     runtime: python
-    plan: 1c-2g
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT app:app
     healthCheckPath: /healthz
-    disk:
-      name: drivesafe-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: DATABASE_PATH
-        value: /var/data/drivesafe.db
+        value: /tmp/drivesafe.db
       - key: COOKIE_SECURE
         value: "true"
       - key: SECRET_KEY
