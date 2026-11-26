@@ -59,10 +59,12 @@ TWILIO_SID_PATTERN = re.compile(r"^AC[0-9a-fA-F]{32}$")
 E164_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 INDIA_MOBILE_PATTERN = re.compile(r"^\+91\d{10}$")
 
+cv2.setNumThreads(1)
+
 face_mesh = mp.solutions.face_mesh.FaceMesh(
     static_image_mode=False,
     max_num_faces=1,
-    refine_landmarks=True,
+    refine_landmarks=False,
     min_detection_confidence=0.3,
     min_tracking_confidence=0.3
 )
@@ -660,9 +662,9 @@ def process_frame():
             return jsonify({"error": "Invalid camera frame"}), 400
 
         height, width = frame.shape[:2]
-        if width > 640:
-            new_height = int(height * 640 / width)
-            frame = cv2.resize(frame, (640, new_height))
+        if width > 320:
+            new_height = int(height * 320 / width)
+            frame = cv2.resize(frame, (320, new_height))
 
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         rgb_frame.flags.writeable = False

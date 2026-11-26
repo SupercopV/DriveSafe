@@ -1522,7 +1522,7 @@ let mediaStream = null;
 // Telemetry History for Waveform Chart
 const EAR_HISTORY_LENGTH = 45;
 const earHistory = new Array(EAR_HISTORY_LENGTH).fill(0.32);
-const FRAME_CAPTURE_INTERVAL_MS = 100;
+const FRAME_CAPTURE_INTERVAL_MS = 250;
 let EAR_THRESHOLD = 0.220;
 let EYE_OPEN_THRESHOLD = 0.260;
 let DROWSINESS_TIME = 2.0;
@@ -1989,20 +1989,26 @@ async function captureAndSendFrame() {
         const h = camera.videoHeight;
         if (!w || !h) return;
 
-        canvas.width = w;
-        canvas.height = h;
-        context.drawImage(camera, 0, 0, w, h);
+        const targetW = Math.min(w, 320);
+        const targetH = Math.max(1, Math.round(h * (targetW / w)));
+        canvas.width = targetW;
+        canvas.height = targetH;
+        context.drawImage(camera, 0, 0, targetW, targetH);
 
-        const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", 0.82));
+        const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", 0.72));
         if (!blob || !monitoring) return;
 
         const formData = new FormData();
         formData.append("frame", blob, "frame.jpg");
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
         const response = await fetch("/process_frame", {
             method: "POST",
-            body: formData
+            body: formData,
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         const responseText = await response.text();
         let data;
