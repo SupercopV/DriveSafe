@@ -197,6 +197,25 @@ class TestFrameProcessingApi(unittest.TestCase):
         self.assertEqual(no_face.status_code, 200)
         self.assertEqual(no_face.get_json()["driver_state"], "NO FACE")
 
+    def test_process_ears_batch_counts_blink_and_favicon_returns_200(self):
+        drivesafe.eye_tracker = drivesafe.EyeClosureTracker(0.22, 0.26, 2.0, 0.08, 0.8, 2)
+        batch_resp = self.client.post(
+            "/process_ears",
+            json={
+                "samples": [
+                    {"face_detected": True, "left_ear": 0.14, "right_ear": 0.15, "ts": 0.0},
+                    {"face_detected": True, "left_ear": 0.14, "right_ear": 0.15, "ts": 0.08},
+                    {"face_detected": True, "left_ear": 0.31, "right_ear": 0.30, "ts": 0.16},
+                ]
+            },
+        )
+        self.assertEqual(batch_resp.status_code, 200)
+        self.assertEqual(batch_resp.get_json()["blink_count"], 1)
+
+        fav_resp = self.client.get("/favicon.ico")
+        self.assertEqual(fav_resp.status_code, 200)
+        self.assertIn("svg", fav_resp.content_type)
+
 
 class TestAlertHistoryApi(unittest.TestCase):
     def setUp(self):

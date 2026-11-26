@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DriveSafe | Driver Fatigue & Drowsiness Monitoring System</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -1917,6 +1918,8 @@ async function startMonitoring() {
 
 async function stopMonitoring() {
     monitoring = false;
+    earSampleBuffer = [];
+    samplingFace = false;
     startButton.disabled = false;
     stopButton.disabled = true;
 
@@ -1985,6 +1988,8 @@ const LEFT_EYE_IDX = [362, 385, 387, 263, 373, 380];
 const RIGHT_EYE_IDX = [33, 160, 158, 133, 153, 144];
 let browserFaceMesh = null;
 let pendingFaceResolve = null;
+let samplingFace = false;
+let earSampleBuffer = [];
 
 function initBrowserFaceMesh() {
     if (browserFaceMesh || typeof window.FaceMesh !== "function") return browserFaceMesh;
@@ -2018,49 +2023,64 @@ function computeEarFromLandmarks(landmarks, indexes, width, height) {
     return (v1 + v2) / (2 * h);
 }
 
-// Frame Capture Loop
+// Frame Capture Loop: local 60ms sampling + batched /process_ears flush
 async function captureAndSendFrame() {
-    if (!monitoring || !cameraActive || processingFrame || camera.readyState < 2) return;
-    processingFrame = true;
+    if (!monitoring || !cameraActive || camera.readyState < 2) return;
+    const w = camera.videoWidth;
+    const h = camera.videoHeight;
+    if (!w || !h) return;
 
-    try {
-        const w = camera.videoWidth;
-        const h = camera.videoHeight;
-        if (!w || !h) return;
-
-        const mesh = initBrowserFaceMesh();
-        if (mesh) {
-            const results = await Promise.race([
-                new Promise((resolve) => {
-                    pendingFaceResolve = resolve;
-                    mesh.send({ image: camera }).catch(() => {
+    const mesh = initBrowserFaceMesh();
+    if (mesh) {
+        if (!samplingFace) {
+            samplingFace = true;
+            try {
+                const results = await Promise.race([
+                    new Promise((resolve) => {
+                        pendingFaceResolve = resolve;
+                        mesh.send({ image: camera }).catch(() => {
+                            pendingFaceResolve = null;
+                            resolve(null);
+                        });
+                    }),
+                    new Promise((resolve) => setTimeout(() => {
                         pendingFaceResolve = null;
                         resolve(null);
-                    });
-                }),
-                new Promise((resolve) => setTimeout(() => {
-                    pendingFaceResolve = null;
-                    resolve(null);
-                }, 10000))
-            ]);
-            if (!monitoring) return;
-
-            let payload = { face_detected: false };
-            const face = results && results.multiFaceLandmarks && results.multiFaceLandmarks[0];
-            if (face) {
-                const leftEar = computeEarFromLandmarks(face, LEFT_EYE_IDX, w, h);
-                const rightEar = computeEarFromLandmarks(face, RIGHT_EYE_IDX, w, h);
-                if (leftEar !== null && rightEar !== null) {
-                    payload = { face_detected: true, left_ear: leftEar, right_ear: rightEar };
+                    }, 3000))
+                ]);
+                if (monitoring && results) {
+                    const ts = (Date.now() - (monitoringStartedAt || Date.now())) / 1000.0;
+                    const face = results.multiFaceLandmarks && results.multiFaceLandmarks[0];
+                    if (face) {
+                        const leftEar = computeEarFromLandmarks(face, LEFT_EYE_IDX, w, h);
+                        const rightEar = computeEarFromLandmarks(face, RIGHT_EYE_IDX, w, h);
+                        if (leftEar !== null && rightEar !== null) {
+                            earSampleBuffer.push({ face_detected: true, left_ear: leftEar, right_ear: rightEar, ts });
+                        } else {
+                            earSampleBuffer.push({ face_detected: false, ts });
+                        }
+                    } else {
+                        earSampleBuffer.push({ face_detected: false, ts });
+                    }
+                    if (earSampleBuffer.length > 30) {
+                        earSampleBuffer = earSampleBuffer.slice(-30);
+                    }
                 }
+            } finally {
+                samplingFace = false;
             }
+        }
 
+        if (processingFrame || earSampleBuffer.length === 0 || !monitoring) return;
+        processingFrame = true;
+        const batch = earSampleBuffer.splice(0, earSampleBuffer.length);
+        try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
             const response = await fetch("/process_ears", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
+                body: JSON.stringify({ samples: batch }),
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
@@ -2070,9 +2090,19 @@ async function captureAndSendFrame() {
                 throw new Error(data.error || `Detection failed (${response.status}).`);
             }
             handleDetectionResult(data);
-            return;
+        } catch (err) {
+            console.error("EAR telemetry error:", err);
+            showDetectionError(err.message || "Could not process eye telemetry.");
+        } finally {
+            processingFrame = false;
         }
+        return;
+    }
 
+    if (processingFrame) return;
+    processingFrame = true;
+
+    try {
         // Fallback to server-side frame processing if browser FaceMesh is unavailable
         const targetW = Math.min(w, 320);
         const targetH = Math.max(1, Math.round(h * (targetW / w)));

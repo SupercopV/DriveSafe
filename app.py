@@ -10,7 +10,7 @@ from threading import Thread, Lock
 from functools import wraps
 from contextlib import contextmanager
 import requests
-from flask import Flask, render_template, jsonify, request, redirect, url_for, session, flash
+from flask import Flask, Response, render_template, jsonify, request, redirect, url_for, session, flash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
@@ -409,6 +409,23 @@ def home():
     )
 
 
+@app.get("/favicon.ico")
+def favicon():
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+        '<stop offset="0%" stop-color="#0284c7"/>'
+        '<stop offset="100%" stop-color="#4f46e5"/>'
+        '</linearGradient></defs>'
+        '<rect width="64" height="64" rx="16" fill="url(#g)"/>'
+        '<path d="M32 12L48 19v12c0 10.5-6.8 19.6-16 22.5C22.8 50.6 16 41.5 16 31V19l16-7z" '
+        'fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>'
+        '<circle cx="32" cy="31" r="5" fill="#38bdf8"/>'
+        '</svg>'
+    )
+    return Response(svg, mimetype="image/svg+xml")
+
+
 @app.get("/healthz")
 def health_check():
     try:
@@ -743,7 +760,7 @@ def build_no_face_response(uid):
     })
 
 
-def evaluate_eye_ears(uid, left_ear, right_ear):
+def evaluate_eye_ears(uid, left_ear, right_ear, now=None):
     global blink_count, drowsiness_count, current_status, incident_active
     global last_ear, last_left_ear, last_right_ear, last_eye_state, last_closed_duration
 
@@ -751,7 +768,8 @@ def evaluate_eye_ears(uid, left_ear, right_ear):
     last_ear = round(average_ear, 3)
     last_left_ear = round(left_ear, 3)
     last_right_ear = round(right_ear, 3)
-    observation = eye_tracker.update(left_ear, right_ear, time.monotonic())
+    sample_time = now if (now is not None and math.isfinite(now)) else time.monotonic()
+    observation = eye_tracker.update(left_ear, right_ear, sample_time)
     last_eye_state = observation.state
     last_closed_duration = round(observation.closed_duration, 2)
 
@@ -809,6 +827,30 @@ def process_ears():
         })
 
     data = request.get_json(silent=True) or {}
+    samples = data.get("samples")
+    if isinstance(samples, list) and samples:
+        last_response = None
+        for sample in samples[:30]:
+            if not isinstance(sample, dict):
+                continue
+            if not sample.get("face_detected", True):
+                last_response = build_no_face_response(uid)
+                continue
+            try:
+                left_ear = float(sample["left_ear"])
+                right_ear = float(sample["right_ear"])
+                ts = float(sample["ts"]) if "ts" in sample else None
+                if not (math.isfinite(left_ear) and math.isfinite(right_ear)):
+                    continue
+                if ts is not None and not math.isfinite(ts):
+                    ts = None
+            except (KeyError, TypeError, ValueError):
+                continue
+            last_response = evaluate_eye_ears(uid, left_ear, right_ear, now=ts)
+        if last_response is not None:
+            return last_response
+        return jsonify({"error": "No valid EAR samples in payload."}), 400
+
     if not data.get("face_detected", True):
         return build_no_face_response(uid)
 
