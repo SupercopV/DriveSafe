@@ -282,7 +282,7 @@ main {
 /* Top Telematics Metrics Grid */
 .telematics-grid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 16px;
     margin-bottom: 24px;
 }
@@ -998,19 +998,203 @@ footer {
     }
 }
 
-@media (max-width: 580px) {
+.mobile-menu-toggle {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: rgba(20, 24, 36, 0.85);
+    border: 1px solid var(--border-highlight);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+@media (max-width: 768px) {
     header {
-        padding: 12px 4%;
+        position: sticky;
+        top: 0;
+        z-index: 60;
+        padding: 10px 14px;
+        gap: 10px;
+        background: rgba(8, 10, 16, 0.88);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .logo-container {
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+        border-radius: 10px;
+    }
+    .brand-text h1 {
+        font-size: 17px;
+        line-height: 1.15;
+    }
+    .brand-text p {
+        font-size: 10px;
+    }
+    .mobile-menu-toggle {
+        display: inline-flex;
+        margin-left: auto;
+        padding: 7px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+    }
+    .header-actions {
+        display: none;
+        width: 100%;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .header-actions.open {
+        display: flex;
+    }
+    .video-monitoring-container {
+        padding: 10px;
+    }
+    .video-wrapper {
+        display: flex;
+        flex-direction: column;
+        aspect-ratio: auto;
+        height: auto;
+        border-radius: 14px;
+        overflow: hidden;
+    }
+    #camera {
+        aspect-ratio: 4 / 3;
+        height: auto;
+        max-height: 50vh;
+    }
+    .video-hud-overlay {
+        position: static;
+        inset: auto;
+        padding: 10px;
+        gap: 8px;
+        background: rgba(10, 14, 24, 0.96);
+        border-top: 1px solid var(--border);
+        border-radius: 0;
+        pointer-events: auto;
+    }
+    .hud-center-reticle {
+        display: none;
+    }
+    .hud-top-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+    }
+    .hud-tag {
+        font-size: 10px;
+        padding: 5px 6px;
+        justify-content: center;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .hud-bottom-banner {
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 10px;
+        border-radius: 10px;
+    }
+}
+
+@media (max-width: 580px) {
+    html, body {
+        overflow-x: hidden;
+    }
+    .container, main {
+        padding: 12px 12px 24px;
+    }
+    .dashboard-layout {
+        gap: 14px;
+    }
+    .panel, .side-panel {
+        border-radius: 16px;
+        margin-bottom: 14px;
     }
     .telematics-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+    .telematics-grid .metric-card:last-child {
+        grid-column: 1 / -1;
+    }
+    .metric-card {
+        padding: 12px 14px;
+        border-radius: 14px;
+    }
+    .metric-header {
+        margin-bottom: 6px;
+    }
+    .metric-title {
+        font-size: 10px;
+    }
+    .metric-icon-badge {
+        width: 26px;
+        height: 26px;
+        font-size: 13px;
+        border-radius: 7px;
+    }
+    .metric-main-value {
+        font-size: 20px;
+    }
+    .metric-footer {
+        font-size: 10px;
+        margin-top: 6px;
     }
     .control-toolbar {
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        padding: 10px 12px 12px;
     }
     .control-toolbar .btn {
         width: 100%;
+        min-height: 44px;
+        padding: 10px 8px;
+        font-size: 12px;
+        border-radius: 12px;
         justify-content: center;
+    }
+    .header-actions .btn,
+    .header-actions .sound-btn-header,
+    .header-actions .logout-btn {
+        min-height: 38px;
+        font-size: 12px;
+    }
+    .panel-header,
+    .side-panel-header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px 14px;
+    }
+    .panel-title-group h3,
+    .side-panel-header h3 {
+        font-size: 14px;
+    }
+    .panel-title-group p {
+        font-size: 11px;
+    }
+    .side-panel-body {
+        padding: 12px 14px;
+    }
+    .drowsiness-alert-banner {
+        padding: 12px 14px;
+        font-size: 13px;
+        border-radius: 12px;
+    }
+    footer {
+        padding: 18px 12px;
+        font-size: 11px;
     }
 }
 </style>
@@ -1027,7 +1211,10 @@ footer {
             <p>Commercial Driver Safety Telematics</p>
         </div>
     </div>
-    <div class="header-actions">
+    <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-expanded="false" aria-controls="headerActions" onclick="toggleHeaderMenu()">
+        ☰ Menu
+    </button>
+    <div class="header-actions" id="headerActions">
         <div class="user-badge">
             <span>Driver:</span> <strong>{{ user_name|e }}</strong>
         </div>
@@ -1145,21 +1332,6 @@ footer {
             <span id="timerStatus">Inactive</span>
         </div>
     </div>
-
-    <!-- SMS Gateway Status Card -->
-    <div class="metric-card">
-        <div class="metric-header">
-            <span class="metric-title">SMS Gateway</span>
-            <span class="metric-icon-badge">📱</span>
-        </div>
-        <div class="metric-value-row">
-            <span class="metric-main-value" id="smsMetricValue" style="font-size: 20px">Checking...</span>
-        </div>
-        <div class="metric-footer">
-            <span id="smsRecipientPreview">Mobile Alert System</span>
-            <span id="smsReadyDot">●</span>
-        </div>
-    </div>
 </section>
 
 <!-- Dashboard Main Grid -->
@@ -1270,57 +1442,8 @@ footer {
         </div>
     </div>
 
-    <!-- Right Column: Alert History, SMS Settings & Guide -->
+    <!-- Right Column: Alert History & Guide -->
     <aside>
-        <!-- Mobile SMS Alert Settings Panel -->
-        <div class="side-panel">
-            <div class="side-panel-header">
-                <h3>📱 Mobile SMS Dispatch</h3>
-                <span class="sms-status-badge" id="smsHeaderBadge">Configuring</span>
-            </div>
-            <div class="side-panel-body">
-                <form id="smsSettingsForm">
-                    <div class="form-group">
-                        <label class="form-label" for="smsPhone">Recipient Mobile Number (India Country Code +91)</label>
-                        <input class="input-field" id="smsPhone" name="phone_number" type="tel"
-                               value="{{ phone_number|e }}" placeholder="+919876543210" pattern="\+91[0-9]{10}" maxlength="13" required>
-                        <p style="font-size:11px;color:var(--text-muted);margin-top:4px">
-                            Format: <strong>+91</strong> followed by your 10-digit mobile number (e.g. <code>+919876543210</code>).
-                        </p>
-                    </div>
-
-                    <label class="checkbox-group">
-                        <input type="checkbox" name="sms_enabled" id="smsEnabledCheckbox" {% if sms_enabled %}checked{% endif %}>
-                        <span>Enable Mobile SMS Fatigue Alerts</span>
-                    </label>
-
-                    <div class="sms-action-row">
-                        <button type="submit" class="btn btn-secondary" style="flex:1">
-                            Save Settings
-                        </button>
-                        <button type="button" class="btn btn-outline" id="testSmsBtn" onclick="sendTestSms()">
-                            Send Test SMS
-                        </button>
-                    </div>
-                </form>
-
-                <div class="sms-status-display">
-                    <span style="color:var(--text-muted)">Twilio SMS Status:</span>
-                    <strong id="smsStatusText">Checking...</strong>
-                </div>
-
-                <div class="alert-feedback-banner" id="smsFeedbackBanner"></div>
-
-                <div id="twilioConfigAlert" style="margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(245, 158, 11, 0.12);border:1px solid rgba(245, 158, 11, 0.35);font-size:12px;color:#fde68a;display:none">
-                    ⚠️ <strong>Twilio setup required:</strong> Add a valid Account SID, Auth Token, and Twilio SMS sender number to your server <code>.env</code> file.
-                </div>
-
-                <div style="margin-top:12px;font-size:11px;color:var(--text-muted);line-height:1.5">
-                    ℹ️ <strong>Rate Limiting:</strong> A 60-second cooldown is enforced to prevent repeated messages during continuous closed-eye incidents.
-                </div>
-            </div>
-        </div>
-
         <!-- Real-Time Alert History Feed -->
         <div class="side-panel">
             <div class="side-panel-header">
@@ -1363,13 +1486,6 @@ footer {
                     <div class="info-spec-text">
                         <h5>Dual Audio Alarm</h5>
                         <p>Web Audio synthesizer buzzer + voice speech alert.</p>
-                    </div>
-                </div>
-                <div class="info-spec-item">
-                    <div class="info-spec-icon">✉️</div>
-                    <div class="info-spec-text">
-                        <h5>Twilio SMS Gateway</h5>
-                        <p>Daemon worker thread with cooldown protection.</p>
                     </div>
                 </div>
             </div>
@@ -1517,7 +1633,7 @@ function updateDuration() {
 }
 
 // Alert History Helper
-function addAlertHistory(type, message) {
+function addAlertHistory(type, message, timestamp = Date.now(), persist = true) {
     const emptyMsg = document.getElementById("emptyHistoryMsg");
     if (emptyMsg) emptyMsg.remove();
 
@@ -1538,7 +1654,7 @@ function addAlertHistory(type, message) {
         badgeLabel = "WARN";
     }
 
-    const timeStr = new Date().toLocaleTimeString();
+    const timeStr = new Date(timestamp).toLocaleTimeString();
     item.innerHTML = `
         <span class="history-type-badge ${badgeClass}">${badgeLabel}</span>
         <span style="flex:1">${escapeHtml(message)}</span>
@@ -1549,11 +1665,40 @@ function addAlertHistory(type, message) {
     while (list.children.length > 20) {
         list.removeChild(list.lastElementChild);
     }
+
+    if (persist) {
+        fetch("/alerts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, message })
+        }).then(response => {
+            if (!response.ok) throw new Error(`Alert history save failed (${response.status}).`);
+        }).catch(error => console.error("Alert history save error:", error));
+    }
 }
 
-function clearAlertHistory() {
+async function loadAlertHistory() {
+    try {
+        const response = await fetch("/alerts");
+        if (!response.ok) throw new Error(`Alert history request failed (${response.status}).`);
+        const data = await response.json();
+        clearAlertHistory(false);
+        for (const event of data.events) {
+            addAlertHistory(event.type, event.message, event.timestamp, false);
+        }
+    } catch (error) {
+        console.warn("Alert history load error:", error);
+    }
+}
+
+function clearAlertHistory(persist = true) {
     const list = document.getElementById("historyList");
     list.innerHTML = `<li class="history-empty-state" id="emptyHistoryMsg">No fatigue or alert incidents recorded yet.</li>`;
+    if (persist) {
+        fetch("/alerts", { method: "DELETE" }).then(response => {
+            if (!response.ok) throw new Error(`Alert history clear failed (${response.status}).`);
+        }).catch(error => console.error("Alert history clear error:", error));
+    }
 }
 
 function escapeHtml(str) {
@@ -1880,7 +2025,6 @@ async function captureAndSendFrame() {
 }
 
 // Telemetry & UI Dispatcher
-let lastSmsTimestamp = "";
 function handleDetectionResult(data) {
     updateDetectionSettings(data);
     if (data.blink_count !== undefined) {
@@ -1894,23 +2038,6 @@ function handleDetectionResult(data) {
     updateDetectionDebug(data);
     updateEarVisuals(ear, data.left_eye_ratio, data.right_eye_ratio);
     updateDriverStateUI(data.driver_state, ear, data.detection_status);
-
-    // Update SMS event if newly dispatched
-    if (data.sms_event && data.sms_event.timestamp && data.sms_event.timestamp !== lastSmsTimestamp) {
-        lastSmsTimestamp = data.sms_event.timestamp;
-        const ev = data.sms_event;
-        if (ev.type === "sent") {
-            addAlertHistory("sms", `Mobile alert sent to ${ev.recipient}`);
-        } else if (ev.type === "cooldown") {
-            addAlertHistory("sms", `Alert in cooldown (${ev.remaining}s remaining)`);
-        } else if (ev.type === "failed") {
-            addAlertHistory("sms", `SMS delivery failed: ${ev.error || 'Gateway error'}`);
-        }
-    }
-
-    if (data.sms_status) {
-        updateSmsStatusBadge(data.sms_status);
-    }
 }
 
 function updateDetectionSettings(data) {
@@ -2072,90 +2199,25 @@ function updateDriverStateUI(driverState, ear, detectionMsg) {
 async function pollServerStatus() {
     try {
         const res = await fetch("/status");
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(`Status request failed (${res.status}).`);
         const d = await res.json();
         if (d.blink_count !== undefined) document.getElementById("blinkCount").textContent = d.blink_count;
         if (d.drowsiness_count !== undefined) document.getElementById("alertCount").textContent = d.drowsiness_count;
-        if (d.sms_status) updateSmsStatusBadge(d.sms_status);
     } catch (e) {
         console.warn("Status poll error:", e);
     }
 }
 
-// SMS API Functions
-async function refreshSmsStatus() {
-    try {
-        const res = await fetch("/sms/status");
-        if (!res.ok) return;
-        const d = await res.json();
-        updateSmsStatusBadge(d.status);
-
-        if (d.phone_number) {
-            document.getElementById("smsRecipientPreview").textContent = d.phone_number;
-        }
-
-        const alertBox = document.getElementById("twilioConfigAlert");
-        if (alertBox) {
-            const phoneValid = d.recipient_configured;
-            alertBox.style.display = d.twilio_configured && phoneValid ? "none" : "block";
-            if (!d.twilio_configured) {
-                alertBox.innerHTML = `⚠️ <strong>Twilio setup required:</strong> ${d.configuration_error || "Add valid Twilio credentials and sender number to the server environment variables."}`;
-            } else if (!phoneValid) {
-                alertBox.innerHTML = "⚠️ <strong>Recipient number required:</strong> Save an Indian mobile number in +91 followed by 10 digits format.";
-            }
-        }
-
-        const testButton = document.getElementById("testSmsBtn");
-        if (testButton.dataset.awaitingResult === "true" && d.status !== "SMS SENDING") {
-            testButton.disabled = false;
-            testButton.dataset.awaitingResult = "false";
-            testButton.textContent = "Send Test SMS";
-        }
-        if (d.status === "SMS FAILED" && d.last_event && d.last_event.error) {
-            const feedback = document.getElementById("smsFeedbackBanner");
-            feedback.className = "alert-feedback-banner error";
-            feedback.textContent = d.last_event.error;
-        }
-    } catch (e) {
-        console.warn("SMS status error:", e);
-    }
-}
-
-function updateSmsStatusBadge(statusText) {
-    let mainStatus = "SMS WAITING";
-    let badgeColor = "var(--yellow-warning)";
-    let dotColor = "var(--yellow-warning)";
-
-    if (statusText === "SMS SENDING") {
-        mainStatus = "SMS SENDING";
-        badgeColor = "var(--yellow-warning)";
-        dotColor = "var(--yellow-warning)";
-    } else if (statusText === "SMS SENT") {
-        mainStatus = "SMS SENT";
-        badgeColor = "var(--green-alert)";
-        dotColor = "var(--green-alert)";
-    } else if (statusText === "SMS FAILED") {
-        mainStatus = "SMS FAILED";
-        badgeColor = "var(--red-drowsy)";
-        dotColor = "var(--red-drowsy)";
-    } else {
-        mainStatus = "SMS WAITING";
-        badgeColor = "var(--blue-accent)";
-        dotColor = "var(--blue-accent)";
-    }
-
-    document.getElementById("smsStatusText").textContent = mainStatus;
-    document.getElementById("smsMetricValue").textContent = mainStatus;
-    document.getElementById("smsHeaderBadge").textContent = mainStatus;
-
-    document.getElementById("smsMetricValue").style.color = badgeColor;
-    document.getElementById("smsHeaderBadge").style.color = badgeColor;
-
-    const dot = document.getElementById("smsReadyDot");
-    if (dot) dot.style.color = dotColor;
-}
-
 // Background Theme & Custom Color Management
+function toggleHeaderMenu() {
+    const actions = document.getElementById("headerActions");
+    const btn = document.getElementById("mobileMenuToggle");
+    if (!actions || !btn) return;
+    const isOpen = actions.classList.toggle("open");
+    btn.setAttribute("aria-expanded", String(isOpen));
+    btn.textContent = isOpen ? "✕ Close" : "☰ Menu";
+}
+
 function changeTheme(themeName) {
     document.body.className = `theme-${themeName}`;
     document.body.style.backgroundColor = "";
@@ -2184,93 +2246,8 @@ if (savedCustomBg) {
     changeTheme(savedTheme);
 }
 
-// Save SMS Settings Form
-document.getElementById("smsSettingsForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const banner = document.getElementById("smsFeedbackBanner");
-    banner.style.display = "none";
-
-    try {
-        const res = await fetch("/sms/settings", {
-            method: "POST",
-            body: new FormData(e.target)
-        });
-        const data = await res.json();
-
-        if (res.ok) {
-            banner.className = "alert-feedback-banner success";
-            banner.textContent = "SMS settings saved successfully.";
-            addAlertHistory("sms", `SMS recipient updated to ${data.phone_number || 'none'}`);
-            refreshSmsStatus();
-        } else {
-            banner.className = "alert-feedback-banner error";
-            banner.textContent = data.error || "Failed to save settings.";
-        }
-    } catch (err) {
-        banner.className = "alert-feedback-banner error";
-        banner.textContent = "Network error while saving SMS settings.";
-    }
-});
-
-// Send Test SMS
-async function sendTestSms() {
-    const btn = document.getElementById("testSmsBtn");
-    const banner = document.getElementById("smsFeedbackBanner");
-    if (btn.disabled) return;
-    btn.disabled = true;
-    btn.dataset.awaitingResult = "true";
-    btn.textContent = "Sending...";
-
-    try {
-        const res = await fetch("/sms/test", { method: "POST" });
-        const data = await res.json();
-
-        if (res.ok) {
-            banner.className = "alert-feedback-banner";
-            banner.style.display = "block";
-            banner.textContent = "SMS SENDING — waiting for Twilio to accept the test message.";
-            let result = null;
-            for (let attempt = 0; attempt < 40; attempt++) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-                const statusResponse = await fetch("/sms/status");
-                if (!statusResponse.ok) throw new Error("Could not retrieve SMS request status.");
-                result = await statusResponse.json();
-                updateSmsStatusBadge(result.status);
-                if (result.status !== "SMS SENDING") break;
-            }
-            if (result && result.status === "SMS SENT") {
-                banner.className = "alert-feedback-banner success";
-                banner.textContent = "SMS SENT — Twilio accepted the test request. Carrier delivery may take a short time.";
-                addAlertHistory("sms", "Test SMS request accepted by Twilio");
-            } else if (result && result.status === "SMS FAILED") {
-                banner.className = "alert-feedback-banner error";
-                banner.textContent = (result.last_event && result.last_event.error) || "SMS FAILED — Twilio did not accept the test request.";
-            } else {
-                banner.className = "alert-feedback-banner";
-                banner.style.display = "block";
-                banner.textContent = "SMS SENDING — Twilio has not returned a final result yet.";
-            }
-        } else {
-            if (data.status) updateSmsStatusBadge(data.status);
-            banner.className = "alert-feedback-banner error";
-            banner.textContent = data.error || "Could not send test SMS.";
-        }
-    } catch (err) {
-        banner.className = "alert-feedback-banner error";
-        banner.textContent = err.message || "Network error while checking the test SMS request.";
-    } finally {
-        const smsStatus = document.getElementById("smsStatusText").textContent;
-        if (smsStatus !== "SMS SENDING") {
-            btn.disabled = false;
-            btn.dataset.awaitingResult = "false";
-            btn.textContent = "Send Test SMS";
-        }
-    }
-}
-
 // Polling for initial load
-refreshSmsStatus();
-setInterval(refreshSmsStatus, 4000);
+loadAlertHistory();
 </script>
 
 </body>

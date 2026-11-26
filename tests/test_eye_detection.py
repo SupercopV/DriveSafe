@@ -183,5 +183,127 @@ class TestFrameProcessingApi(unittest.TestCase):
         queue_sms.assert_called_once_with(1)
 
 
+class TestAlertHistoryApi(unittest.TestCase):
+    def setUp(self):
+        self.client = drivesafe.app.test_client()
+        drivesafe.app.config["TESTING"] = True
+        with drivesafe.get_db() as connection:
+            cursor = connection.execute(
+                "INSERT INTO users (full_name, email, password_hash) VALUES (?, ?, ?)",
+                ("History Test", "history-test@example.test", "unused"),
+            )
+            self.user_id = cursor.lastrowid
+        with self.client.session_transaction() as session:
+            session["user_id"] = self.user_id
+
+    def tearDown(self):
+        with drivesafe.get_db() as connection:
+            connection.execute("DELETE FROM alert_history WHERE user_id=?", (self.user_id,))
+            connection.execute("DELETE FROM users WHERE id=?", (self.user_id,))
+
+    def test_alert_history_persists_lists_and_clears_user_events(self):
+        created = self.client.post(
+            "/alerts",
+            json={"type": "critical", "message": "Drowsiness detected"},
+        )
+
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.get_json()["message"], "Drowsiness detected")
+        listed = self.client.get("/alerts").get_json()["events"]
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["type"], "critical")
+        self.assertEqual(listed[0]["timestamp"], created.get_json()["timestamp"])
+
+        cleared = self.client.delete("/alerts")
+
+        self.assertEqual(cleared.status_code, 200)
+        self.assertEqual(self.client.get("/alerts").get_json()["events"], [])
+
+    def test_alert_history_rejects_invalid_events_and_returns_json_when_unauthenticated(self):
+        invalid = self.client.post("/alerts", json={"type": "other", "message": "x"})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn("error", invalid.get_json())
+
+        with self.client.session_transaction() as session:
+            session.clear()
+        unauthorized = self.client.post("/sms/settings")
+        self.assertEqual(unauthorized.status_code, 401)
+        self.assertIn("error", unauthorized.get_json())
+
+
+class TestSmsWorkflow(unittest.TestCase):
+    def setUp(self):
+        self.client = drivesafe.app.test_client()
+        drivesafe.app.config["TESTING"] = True
+        with drivesafe.get_db() as connection:
+            cursor = connection.execute(
+                "INSERT INTO users (full_name, email, password_hash) VALUES (?, ?, ?)",
+                ("SMS Test", "sms-test@example.test", "unused"),
+            )
+            self.user_id = cursor.lastrowid
+        with self.client.session_transaction() as session:
+            session["user_id"] = self.user_id
+        with drivesafe.sms_lock:
+            drivesafe.sms_status_by_user.pop(self.user_id, None)
+            drivesafe.last_sms_time_by_user.pop(self.user_id, None)
+            drivesafe.last_sms_event_by_user.pop(self.user_id, None)
+
+    def tearDown(self):
+        with drivesafe.get_db() as connection:
+            connection.execute("DELETE FROM users WHERE id=?", (self.user_id,))
+        with drivesafe.sms_lock:
+            drivesafe.sms_status_by_user.pop(self.user_id, None)
+            drivesafe.last_sms_time_by_user.pop(self.user_id, None)
+            drivesafe.last_sms_event_by_user.pop(self.user_id, None)
+
+    def test_sms_settings_and_test_dispatch_succeeds_with_valid_twilio_env(self):
+        saved = self.client.post(
+            "/sms/settings",
+            data={"phone_number": "+919876543210", "sms_enabled": "on"},
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.get_json()["phone_number"], "+919876543210")
+
+        fake_env = {
+            "TWILIO_ACCOUNT_SID": "AC" + "a" * 32,
+            "TWILIO_AUTH_TOKEN": "b" * 32,
+            "TWILIO_PHONE_NUMBER": "+15551234567",
+        }
+        fake_message = SimpleNamespace(sid="SM" + "1" * 32)
+        with patch.dict(os.environ, fake_env, clear=False), \
+             patch.object(drivesafe, "Client") as mock_client_cls:
+            mock_client_cls.return_value.messages.create.return_value = fake_message
+            resp = self.client.post("/sms/test")
+            self.assertEqual(resp.status_code, 202)
+            self.assertEqual(resp.get_json()["status"], "SMS SENDING")
+            drivesafe.sms_queue.join()
+            status_resp = self.client.get("/sms/status").get_json()
+
+        self.assertEqual(status_resp["status"], "SMS SENT")
+        self.assertTrue(status_resp["twilio_configured"])
+        self.assertTrue(status_resp["recipient_configured"])
+        self.assertEqual(status_resp["last_event"]["sid"], fake_message.sid)
+
+    def test_sms_worker_handles_unexpected_exception_without_dying(self):
+        self.client.post(
+            "/sms/settings",
+            data={"phone_number": "+919876543210", "sms_enabled": "on"},
+        )
+        fake_env = {
+            "TWILIO_ACCOUNT_SID": "AC" + "a" * 32,
+            "TWILIO_AUTH_TOKEN": "b" * 32,
+            "TWILIO_PHONE_NUMBER": "+15551234567",
+        }
+        with patch.dict(os.environ, fake_env, clear=False), \
+             patch.object(drivesafe, "Client", side_effect=RuntimeError("boom")):
+            resp = self.client.post("/sms/test")
+            self.assertEqual(resp.status_code, 202)
+            drivesafe.sms_queue.join()
+
+        status_resp = self.client.get("/sms/status").get_json()
+        self.assertEqual(status_resp["status"], "SMS FAILED")
+        self.assertEqual(status_resp["last_event"]["type"], "failed")
+
+
 if __name__ == "__main__":
     unittest.main()
