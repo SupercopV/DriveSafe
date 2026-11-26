@@ -3,6 +3,8 @@ import math
 import time
 import sqlite3
 import re
+import hashlib
+import secrets
 from queue import Queue
 from threading import Thread, Lock
 from functools import wraps
@@ -166,6 +168,15 @@ def init_db():
             "CREATE INDEX IF NOT EXISTS idx_alert_history_user_id_id "
             "ON alert_history (user_id, id DESC)"
         )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at INTEGER NOT NULL,
+                used INTEGER NOT NULL DEFAULT 0
+            )
+        """)
 
 
 def twilio_configuration_errors():
@@ -600,6 +611,80 @@ def logout():
     current_status = "Monitoring stopped"
     session.clear()
     return redirect(url_for("login"))
+
+
+def hash_reset_token(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if "user_id" in session:
+        return redirect(url_for("home"))
+    reset_url = None
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        if not email:
+            flash("Please enter your registered email address.", "error")
+        else:
+            with get_db() as connection:
+                user = connection.execute(
+                    "SELECT id FROM users WHERE email = ?", (email,)
+                ).fetchone()
+                if user:
+                    raw_token = secrets.token_urlsafe(32)
+                    token_hash = hash_reset_token(raw_token)
+                    expires_at = int(time.time()) + 900
+                    connection.execute(
+                        "UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0",
+                        (user["id"],),
+                    )
+                    connection.execute(
+                        "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+                        (user["id"], token_hash, expires_at),
+                    )
+                    reset_url = url_for("reset_password", token=raw_token, _external=True)
+                    flash("Password reset link generated (valid for 15 minutes).", "success")
+                else:
+                    flash("No account found with that email address.", "error")
+    return render_template("forgot_password.html", reset_url=reset_url)
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    if "user_id" in session:
+        return redirect(url_for("home"))
+    token_hash = hash_reset_token(token)
+    now = int(time.time())
+    with get_db() as connection:
+        record = connection.execute(
+            "SELECT id, user_id, expires_at, used FROM password_reset_tokens WHERE token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+        if not record or record["used"] or record["expires_at"] < now:
+            flash("This password reset link is invalid or has expired.", "error")
+            return redirect(url_for("forgot_password"))
+
+        if request.method == "POST":
+            password = request.form.get("password", "")
+            confirm_password = request.form.get("confirm_password", "")
+            if len(password) < 8:
+                flash("Password must contain at least 8 characters.", "error")
+            elif password != confirm_password:
+                flash("Passwords do not match.", "error")
+            else:
+                connection.execute(
+                    "UPDATE users SET password_hash = ? WHERE id = ?",
+                    (generate_password_hash(password), record["user_id"]),
+                )
+                connection.execute(
+                    "UPDATE password_reset_tokens SET used = 1 WHERE id = ?",
+                    (record["id"],),
+                )
+                flash("Your password has been reset. Please log in.", "success")
+                return redirect(url_for("login"))
+
+    return render_template("reset_password.html", token=token)
 
 
 @app.route("/start")

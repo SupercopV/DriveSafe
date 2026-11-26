@@ -320,5 +320,48 @@ class TestSmsWorkflow(unittest.TestCase):
         self.assertEqual(status_resp["last_event"]["type"], "failed")
 
 
+class TestPasswordReset(unittest.TestCase):
+    def setUp(self):
+        self.client = drivesafe.app.test_client()
+        drivesafe.app.config["TESTING"] = True
+        self.email = "reset-test@example.test"
+        with drivesafe.get_db() as connection:
+            cursor = connection.execute(
+                "INSERT INTO users (full_name, email, password_hash) VALUES (?, ?, ?)",
+                ("Reset User", self.email, drivesafe.generate_password_hash("oldpassword123")),
+            )
+            self.user_id = cursor.lastrowid
+
+    def tearDown(self):
+        with drivesafe.get_db() as connection:
+            connection.execute("DELETE FROM password_reset_tokens WHERE user_id=?", (self.user_id,))
+            connection.execute("DELETE FROM users WHERE id=?", (self.user_id,))
+
+    def test_forgot_and_reset_password_updates_credentials_and_single_use(self):
+        resp = self.client.post("/forgot-password", data={"email": self.email})
+        self.assertEqual(resp.status_code, 200)
+        html = resp.get_data(as_text=True)
+        marker = "/reset-password/"
+        self.assertIn(marker, html)
+        token = html.split(marker, 1)[1].split('"', 1)[0]
+
+        reset_resp = self.client.post(
+            f"/reset-password/{token}",
+            data={"password": "newpassword123", "confirm_password": "newpassword123"},
+            follow_redirects=False,
+        )
+        self.assertEqual(reset_resp.status_code, 302)
+
+        login_resp = self.client.post(
+            "/login",
+            data={"email": self.email, "password": "newpassword123"},
+            follow_redirects=False,
+        )
+        self.assertEqual(login_resp.status_code, 302)
+
+        reused_resp = self.client.get(f"/reset-password/{token}", follow_redirects=False)
+        self.assertEqual(reused_resp.status_code, 302)
+
+
 if __name__ == "__main__":
     unittest.main()
