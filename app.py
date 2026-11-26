@@ -1,10 +1,7 @@
 import os
-import cv2
-import mediapipe as mp
 import math
 import time
 import sqlite3
-import numpy as np
 import re
 from queue import Queue
 from threading import Thread, Lock
@@ -59,15 +56,23 @@ TWILIO_SID_PATTERN = re.compile(r"^AC[0-9a-fA-F]{32}$")
 E164_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 INDIA_MOBILE_PATTERN = re.compile(r"^\+91\d{10}$")
 
-cv2.setNumThreads(1)
+face_mesh = None
 
-face_mesh = mp.solutions.face_mesh.FaceMesh(
-    static_image_mode=False,
-    max_num_faces=1,
-    refine_landmarks=False,
-    min_detection_confidence=0.3,
-    min_tracking_confidence=0.3
-)
+
+def get_face_mesh():
+    global face_mesh
+    if face_mesh is None:
+        import cv2
+        import mediapipe as mp
+        cv2.setNumThreads(1)
+        face_mesh = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=False,
+            max_num_faces=1,
+            refine_landmarks=False,
+            min_detection_confidence=0.3,
+            min_tracking_confidence=0.3
+        )
+    return face_mesh
 
 LEFT_EYE = [362, 385, 387, 263, 373, 380]
 RIGHT_EYE = [33, 160, 158, 133, 153, 144]
@@ -324,7 +329,7 @@ def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if "user_id" not in session:
-            api_paths = ("/process_frame", "/status", "/start", "/stop", "/alerts")
+            api_paths = ("/process_frame", "/process_ears", "/status", "/start", "/stop", "/alerts")
             if request.path in api_paths or request.path.startswith("/sms/"):
                 return jsonify({"error": "Please log in first."}), 401
             return redirect(url_for("login"))
@@ -633,11 +638,109 @@ def stop():
     })
 
 
+def build_no_face_response(uid):
+    global current_status, incident_active
+    current_status = "Face not detected"
+    incident_active = False
+    reset_eye_telemetry()
+    with sms_lock:
+        sms_st = sms_status_by_user.get(uid, "SMS WAITING")
+        sms_ev = last_sms_event_by_user.get(uid)
+    return jsonify({
+        "monitoring": True,
+        "blink_count": blink_count,
+        "drowsiness_count": drowsiness_count,
+        "detection_status": current_status,
+        "driver_state": "NO FACE",
+        **detection_telemetry(),
+        "sms_status": sms_st,
+        "sms_event": sms_ev
+    })
+
+
+def evaluate_eye_ears(uid, left_ear, right_ear):
+    global blink_count, drowsiness_count, current_status, incident_active
+    global last_ear, last_left_ear, last_right_ear, last_eye_state, last_closed_duration
+
+    average_ear = (left_ear + right_ear) / 2
+    last_ear = round(average_ear, 3)
+    last_left_ear = round(left_ear, 3)
+    last_right_ear = round(right_ear, 3)
+    observation = eye_tracker.update(left_ear, right_ear, time.monotonic())
+    last_eye_state = observation.state
+    last_closed_duration = round(observation.closed_duration, 2)
+
+    if observation.state == "CLOSED":
+        if observation.drowsy:
+            current_status = "DROWSINESS ALERT!"
+            if not incident_active:
+                incident_active = True
+                drowsiness_count += 1
+                queue_alert_sms(uid)
+        else:
+            current_status = "Eyes Closed"
+    elif observation.state == "CLOSING":
+        current_status = "Eyes Closing"
+    elif observation.state == "OPEN":
+        if observation.blink_detected:
+            blink_count += 1
+        incident_active = False
+        current_status = "Eyes Open"
+    else:
+        current_status = "Face not detected"
+        incident_active = False
+
+    driver_state = get_driver_state(current_status)
+
+    with sms_lock:
+        sms_raw = sms_status_by_user.get(uid, "SMS WAITING")
+        sms_st = sms_raw if sms_raw in ("SMS WAITING", "SMS SENDING", "SMS SENT", "SMS FAILED") else "SMS WAITING"
+        sms_ev = last_sms_event_by_user.get(uid)
+
+    return jsonify({
+        "monitoring": True,
+        "blink_count": blink_count,
+        "drowsiness_count": drowsiness_count,
+        "detection_status": current_status,
+        "driver_state": driver_state,
+        **detection_telemetry(),
+        "sms_status": sms_st,
+        "sms_event": sms_ev
+    })
+
+
+@app.route("/process_ears", methods=["POST"])
+@login_required
+def process_ears():
+    uid = session.get("user_id")
+    if not monitoring:
+        return jsonify({
+            "monitoring": False,
+            "blink_count": blink_count,
+            "drowsiness_count": drowsiness_count,
+            "detection_status": "Monitoring stopped",
+            "driver_state": "STOPPED",
+            **detection_telemetry(),
+        })
+
+    data = request.get_json(silent=True) or {}
+    if not data.get("face_detected", True):
+        return build_no_face_response(uid)
+
+    try:
+        left_ear = float(data["left_ear"])
+        right_ear = float(data["right_ear"])
+        if not (math.isfinite(left_ear) and math.isfinite(right_ear)):
+            raise ValueError("EAR values must be finite.")
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "Invalid EAR telemetry payload."}), 400
+
+    return evaluate_eye_ears(uid, left_ear, right_ear)
+
+
 @app.route("/process_frame", methods=["POST"])
 @login_required
 def process_frame():
-    global monitoring, blink_count, drowsiness_count, current_status, incident_active
-    global last_ear, last_left_ear, last_right_ear, last_eye_state, last_closed_duration
     uid = session.get("user_id")
 
     if not monitoring:
@@ -655,6 +758,9 @@ def process_frame():
         return jsonify({"error": "No camera frame received"}), 400
 
     try:
+        import cv2
+        import numpy as np
+
         image_bytes = file.read()
         image_array = np.frombuffer(image_bytes, np.uint8)
         frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
@@ -669,77 +775,19 @@ def process_frame():
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         rgb_frame.flags.writeable = False
 
+        mesh = get_face_mesh()
         with face_lock:
-            results = face_mesh.process(rgb_frame)
+            results = mesh.process(rgb_frame)
 
         if not results.multi_face_landmarks:
-            current_status = "Face not detected"
-            incident_active = False
-            reset_eye_telemetry()
-            with sms_lock:
-                sms_st = sms_status_by_user.get(uid, "SMS WAITING")
-                sms_ev = last_sms_event_by_user.get(uid)
-            return jsonify({
-                "monitoring": True,
-                "blink_count": blink_count,
-                "drowsiness_count": drowsiness_count,
-                "detection_status": current_status,
-                "driver_state": "NO FACE",
-                **detection_telemetry(),
-                "sms_status": sms_st,
-                "sms_event": sms_ev
-            })
+            return build_no_face_response(uid)
 
         face = results.multi_face_landmarks[0]
         h, w = frame.shape[:2]
         points = [(landmark.x * w, landmark.y * h) for landmark in face.landmark]
         left_ear = eye_ratio(points, LEFT_EYE)
         right_ear = eye_ratio(points, RIGHT_EYE)
-        average_ear = (left_ear + right_ear) / 2
-        last_ear = round(average_ear, 3)
-        last_left_ear = round(left_ear, 3)
-        last_right_ear = round(right_ear, 3)
-        observation = eye_tracker.update(left_ear, right_ear, time.monotonic())
-        last_eye_state = observation.state
-        last_closed_duration = round(observation.closed_duration, 2)
-
-        if observation.state == "CLOSED":
-            if observation.drowsy:
-                current_status = "DROWSINESS ALERT!"
-                if not incident_active:
-                    incident_active = True
-                    drowsiness_count += 1
-                    queue_alert_sms(uid)
-            else:
-                current_status = "Eyes Closed"
-        elif observation.state == "CLOSING":
-            current_status = "Eyes Closing"
-        elif observation.state == "OPEN":
-            if observation.blink_detected:
-                blink_count += 1
-            incident_active = False
-            current_status = "Eyes Open"
-        else:
-            current_status = "Face not detected"
-            incident_active = False
-
-        driver_state = get_driver_state(current_status)
-
-        with sms_lock:
-            sms_raw = sms_status_by_user.get(uid, "SMS WAITING")
-            sms_st = sms_raw if sms_raw in ("SMS WAITING", "SMS SENDING", "SMS SENT", "SMS FAILED") else "SMS WAITING"
-            sms_ev = last_sms_event_by_user.get(uid)
-
-        return jsonify({
-            "monitoring": True,
-            "blink_count": blink_count,
-            "drowsiness_count": drowsiness_count,
-            "detection_status": current_status,
-            "driver_state": driver_state,
-            **detection_telemetry(),
-            "sms_status": sms_st,
-            "sms_event": sms_ev
-        })
+        return evaluate_eye_ears(uid, left_ear, right_ear)
 
     except Exception:
         app.logger.exception("Frame processing failed.")

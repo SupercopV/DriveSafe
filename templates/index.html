@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 
 <style>
 :root {
@@ -1979,6 +1980,44 @@ function toggleCameraOnly() {
     }
 }
 
+// Browser-side MediaPipe FaceMesh (avoids server CPU/RAM overload)
+const LEFT_EYE_IDX = [362, 385, 387, 263, 373, 380];
+const RIGHT_EYE_IDX = [33, 160, 158, 133, 153, 144];
+let browserFaceMesh = null;
+let pendingFaceResolve = null;
+
+function initBrowserFaceMesh() {
+    if (browserFaceMesh || typeof window.FaceMesh !== "function") return browserFaceMesh;
+    const mesh = new window.FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+    mesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: false,
+        minDetectionConfidence: 0.3,
+        minTrackingConfidence: 0.3
+    });
+    mesh.onResults((results) => {
+        if (pendingFaceResolve) {
+            const resolve = pendingFaceResolve;
+            pendingFaceResolve = null;
+            resolve(results);
+        }
+    });
+    browserFaceMesh = mesh;
+    return browserFaceMesh;
+}
+
+function computeEarFromLandmarks(landmarks, indexes, width, height) {
+    const pts = indexes.map(i => ({ x: landmarks[i].x * width, y: landmarks[i].y * height }));
+    const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const v1 = dist(pts[1], pts[5]);
+    const v2 = dist(pts[2], pts[4]);
+    const h = dist(pts[0], pts[3]);
+    if (!Number.isFinite(h) || h <= 1e-6) return null;
+    return (v1 + v2) / (2 * h);
+}
+
 // Frame Capture Loop
 async function captureAndSendFrame() {
     if (!monitoring || !cameraActive || processingFrame || camera.readyState < 2) return;
@@ -1989,6 +2028,52 @@ async function captureAndSendFrame() {
         const h = camera.videoHeight;
         if (!w || !h) return;
 
+        const mesh = initBrowserFaceMesh();
+        if (mesh) {
+            const results = await Promise.race([
+                new Promise((resolve) => {
+                    pendingFaceResolve = resolve;
+                    mesh.send({ image: camera }).catch(() => {
+                        pendingFaceResolve = null;
+                        resolve(null);
+                    });
+                }),
+                new Promise((resolve) => setTimeout(() => {
+                    pendingFaceResolve = null;
+                    resolve(null);
+                }, 10000))
+            ]);
+            if (!monitoring) return;
+
+            let payload = { face_detected: false };
+            const face = results && results.multiFaceLandmarks && results.multiFaceLandmarks[0];
+            if (face) {
+                const leftEar = computeEarFromLandmarks(face, LEFT_EYE_IDX, w, h);
+                const rightEar = computeEarFromLandmarks(face, RIGHT_EYE_IDX, w, h);
+                if (leftEar !== null && rightEar !== null) {
+                    payload = { face_detected: true, left_ear: leftEar, right_ear: rightEar };
+                }
+            }
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const response = await fetch("/process_ears", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || `Detection failed (${response.status}).`);
+            }
+            handleDetectionResult(data);
+            return;
+        }
+
+        // Fallback to server-side frame processing if browser FaceMesh is unavailable
         const targetW = Math.min(w, 320);
         const targetH = Math.max(1, Math.round(h * (targetW / w)));
         canvas.width = targetW;

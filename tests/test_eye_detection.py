@@ -182,6 +182,21 @@ class TestFrameProcessingApi(unittest.TestCase):
         self.assertEqual(responses[5]["drowsiness_count"], 1)
         queue_sms.assert_called_once_with(1)
 
+    def test_process_ears_endpoint_handles_open_and_no_face(self):
+        drivesafe.eye_tracker = SequencedTracker([0.0])
+        resp = self.client.post(
+            "/process_ears",
+            json={"face_detected": True, "left_ear": 0.31, "right_ear": 0.29},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["driver_state"], "ALERT")
+        self.assertEqual(data["eye_state"], "OPEN")
+
+        no_face = self.client.post("/process_ears", json={"face_detected": False})
+        self.assertEqual(no_face.status_code, 200)
+        self.assertEqual(no_face.get_json()["driver_state"], "NO FACE")
+
 
 class TestAlertHistoryApi(unittest.TestCase):
     def setUp(self):
